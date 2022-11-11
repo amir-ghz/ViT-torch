@@ -1,0 +1,3 @@
+wget https://storage.googleapis.com/vit_models/imagenet21k%2Bimagenet2012/ViT-B_16.npz
+
+python train.py --name cifar10-100_500 --dataset cifar10 --model_type ViT-B_16 --no-training False --gradient_accumulation_steps 4
