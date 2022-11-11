@@ -385,7 +385,7 @@ def main():
                     help="Whether to train or eval ...\n"
                             "False (default value): the model training mode in on.\n"
                             "True: otherwise.\n")
-    parser.add_argument('--torch_model_location', type=str, default='weights/',
+    parser.add_argument('--torch_model_location', type=str, default='',
                     help="Trained model in .pt format location!")
 
     args = parser.parse_args()
