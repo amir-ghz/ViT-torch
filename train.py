@@ -125,10 +125,10 @@ def custome_eval(args, model, test_loader):
     logger.info("  Batch size = %d", args.eval_batch_size)
     
     model = torch.load(args.torch_model_location)
-    with torch.no_grad():
-        print('broken is:::::::::: ', model.transformer.encoder.layer[10].attn.out.weight[10][10])
-        model.transformer.encoder.layer[10].attn.out.weight[10][10] = +inf
-        print('val issssss: ', model.transformer.encoder.layer[10].attn.out.weight[10][10])
+    #with torch.no_grad():
+    #    print('broken is:::::::::: ', model.transformer.encoder.layer[10].attn.out.weight[10][10])
+    #    model.transformer.encoder.layer[10].attn.out.weight[10][10] = +inf
+    #    print('val issssss: ', model.transformer.encoder.layer[10].attn.out.weight[10][10])
     model.eval()
 
     all_preds, all_label = [], []
