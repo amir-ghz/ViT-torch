@@ -85,6 +85,92 @@ def set_seed(args):
     if args.n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
+def custome_eval(args, model, test_loader):
+    # Validation!
+    eval_losses = AverageMeter()
+
+    """ Train the model """
+    if args.local_rank in [-1, 0]:
+        os.makedirs(args.output_dir, exist_ok=True)
+        writer = SummaryWriter(log_dir=os.path.join("logs", args.name))
+
+    args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
+
+    # Prepare dataset
+    train_loader, test_loader = get_loader(args)
+
+    # Prepare optimizer and scheduler
+    optimizer = torch.optim.SGD(model.parameters(),
+                                lr=args.learning_rate,
+                                momentum=0.9,
+                                weight_decay=args.weight_decay)
+    t_total = args.num_steps
+    if args.decay_type == "cosine":
+        scheduler = WarmupCosineSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total)
+    else:
+        scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total)
+
+    if args.fp16:
+        model, optimizer = amp.initialize(models=model,
+                                          optimizers=optimizer,
+                                          opt_level=args.fp16_opt_level)
+        amp._amp_state.loss_scalers[0]._loss_scale = 2**20
+
+    # Distributed training
+    if args.local_rank != -1:
+        model = DDP(model, message_size=250000000, gradient_predivide_factor=get_world_size())
+
+    logger.info("***** Running Validation *****")
+    logger.info("  Num steps = %d", len(test_loader))
+    logger.info("  Batch size = %d", args.eval_batch_size)
+    
+    model = torch.load(args.torch_model_location)
+    with torch.no_grad():
+        print('broken is:::::::::: ', model.transformer.encoder.layer[10].attn.out.weight[10][10])
+        model.transformer.encoder.layer[10].attn.out.weight[10][10] = +inf
+        print('val issssss: ', model.transformer.encoder.layer[10].attn.out.weight[10][10])
+    model.eval()
+
+    all_preds, all_label = [], []
+    epoch_iterator = tqdm(test_loader,
+                          desc="Validating... (loss=X.X)",
+                          bar_format="{l_bar}{r_bar}",
+                          dynamic_ncols=True,
+                          disable=args.local_rank not in [-1, 0])
+    loss_fct = torch.nn.CrossEntropyLoss()
+    for step, batch in enumerate(epoch_iterator):
+        batch = tuple(t.to(args.device) for t in batch)
+        x, y = batch
+        with torch.no_grad():
+            logits = model(x)[0]
+
+            eval_loss = loss_fct(logits, y)
+            eval_losses.update(eval_loss.item())
+
+            preds = torch.argmax(logits, dim=-1)
+
+        if len(all_preds) == 0:
+            all_preds.append(preds.detach().cpu().numpy())
+            all_label.append(y.detach().cpu().numpy())
+        else:
+            all_preds[0] = np.append(
+                all_preds[0], preds.detach().cpu().numpy(), axis=0
+            )
+            all_label[0] = np.append(
+                all_label[0], y.detach().cpu().numpy(), axis=0
+            )
+        epoch_iterator.set_description("Validating... (loss=%2.5f)" % eval_losses.val)
+
+    all_preds, all_label = all_preds[0], all_label[0]
+    accuracy = simple_accuracy(all_preds, all_label)
+
+    logger.info("\n")
+    logger.info("Validation Results")
+    logger.info("Valid Loss: %2.5f" % eval_losses.avg)
+    logger.info("Valid Accuracy: %2.5f" % accuracy)
+    print("Valid Accuracy: %2.5f" % accuracy)
+
+    return accuracy
 
 def valid(args, model, writer, test_loader, global_step):
     # Validation!
@@ -224,6 +310,7 @@ def train(args, model):
                     accuracy = valid(args, model, writer, test_loader, global_step)
                     if best_acc < accuracy:
                         save_model(args, model)
+                        torch.save(model, args.model_type + '.pt')
                         best_acc = accuracy
                     model.train()
 
@@ -293,7 +380,17 @@ def main():
                         help="Loss scaling to improve fp16 numeric stability. Only used when fp16 set to True.\n"
                              "0 (default value): dynamic loss scaling.\n"
                              "Positive power of 2: static loss scaling value.\n")
+
+    parser.add_argument('--no_training', type=bool, default=False,
+                    help="Whether to train or eval ...\n"
+                            "False (default value): the model training mode in on.\n"
+                            "True: otherwise.\n")
+    parser.add_argument('--torch_model_location', type=str, default='weights/',
+                    help="Trained model in .pt format location!")
+
     args = parser.parse_args()
+
+
 
     # Setup CUDA, GPU & distributed training
     if args.local_rank == -1:
@@ -321,7 +418,19 @@ def main():
     args, model = setup(args)
 
     # Training
+
+    if (args.no_training == False):
+
+        train(args, model)
+
+    else:
+        
+        test_loader = get_loader(args)
+        custome_eval(args, model, test_loader)
+
+
     train(args, model)
+
 
 
 if __name__ == "__main__":
