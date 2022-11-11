@@ -429,8 +429,6 @@ def main():
         custome_eval(args, model, test_loader)
 
 
-    train(args, model)
-
 
 
 if __name__ == "__main__":
